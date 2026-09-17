@@ -85,6 +85,7 @@ fun AdminLoginScreen(
     val coroutineScope = rememberCoroutineScope()
     var identifier by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
@@ -138,7 +139,35 @@ fun AdminLoginScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Quick credential helper chip
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = FlameOrange.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, FlameOrange.copy(alpha = 0.3f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            identifier = "betulelhamed380@gmail.com"
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.VpnKey, contentDescription = null, tint = FlameOrange, modifier = Modifier.size(16.dp))
+                        Text(
+                            text = if (isArabic) "حساب الإدارة: betulelhamed380@gmail.com (انقر للملء)" else "Admin account: betulelhamed380@gmail.com (click to fill)",
+                            fontSize = 11.sp,
+                            color = FlameOrange,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 OutlinedTextField(
                     value = identifier,
@@ -158,8 +187,16 @@ fun AdminLoginScreen(
                     value = password,
                     onValueChange = { password = it },
                     label = { Text(if (isArabic) "كلمة المرور" else "Password") },
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
                     leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                            )
+                        }
+                    },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -168,14 +205,21 @@ fun AdminLoginScreen(
                 )
 
                 if (errorMessage != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = errorMessage!!,
-                        color = StatusCancelled,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
-                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        color = StatusCancelled.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = errorMessage!!,
+                            color = StatusCancelled,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -237,6 +281,10 @@ fun AdminDashboardContent(
     isArabic: Boolean,
     onBackToCustomer: () -> Unit
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
+
     var selectedTab by remember { mutableIntStateOf(0) }
     val orders by BunzoRepository.orders.collectAsState()
     val products by BunzoRepository.products.collectAsState()
@@ -246,8 +294,11 @@ fun AdminDashboardContent(
     val newOrdersCount = remember(orders) {
         orders.count { it.status == "received" }
     }
-    val customerUsersCount = remember(users) {
-        users.count { it.role == "customer" }
+    val customerUsersCount = remember(users, orders) {
+        val registered = users.filter { it.role.isBlank() || it.role.equals("customer", ignoreCase = true) }
+            .map { if (it.phone.isNotBlank()) it.phone else it.uid }
+        val orderPhones = orders.mapNotNull { if (it.customerPhone.isNotBlank()) it.customerPhone else null }
+        (registered + orderPhones).distinct().size
     }
 
     Scaffold(
@@ -329,11 +380,56 @@ fun AdminDashboardContent(
                             }
                         }
 
-                        // Actions: Customer App & Logout
+                        // Actions: Cloud Sync, Customer App & Logout
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            // Cloud Sync Refresh Button
+                            Surface(
+                                color = Color.White.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clickable(enabled = !isRefreshing) {
+                                        isRefreshing = true
+                                        coroutineScope.launch {
+                                            val res = BunzoRepository.refreshFromFirestore(context)
+                                            isRefreshing = false
+                                            res.onSuccess { count ->
+                                                Toast.makeText(
+                                                    context,
+                                                    if (isArabic) "تمت مزامنة البيانات ($count طلب)" else "Synced ($count orders)",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }.onFailure {
+                                                Toast.makeText(
+                                                    context,
+                                                    if (isArabic) "تعذر المزامنة السحابية" else "Sync failed",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        }
+                                    }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    if (isRefreshing) {
+                                        CircularProgressIndicator(
+                                            color = FlameOrange,
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = "Sync Cloud",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+
                             Surface(
                                 color = Color.White.copy(alpha = 0.12f),
                                 shape = RoundedCornerShape(8.dp),
@@ -1294,54 +1390,71 @@ fun AdminMenuTab(isArabic: Boolean) {
     val categories by BunzoRepository.categories.collectAsState()
     val products by BunzoRepository.products.collectAsState()
 
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategoryFilter by remember { mutableStateOf<String?>("all") }
+
     var showAddCategoryDialog by remember { mutableStateOf(false) }
+    var categoryToEdit by remember { mutableStateOf<Category?>(null) }
+    var categoryToDeleteError by remember { mutableStateOf<String?>(null) }
+
     var showAddProductDialog by remember { mutableStateOf(false) }
     var productToEdit by remember { mutableStateOf<Product?>(null) }
-    var categoryToDeleteError by remember { mutableStateOf<String?>(null) }
+    var productToDelete by remember { mutableStateOf<Product?>(null) }
+
+    val filteredProducts = remember(products, searchQuery, selectedCategoryFilter) {
+        products.filter { p ->
+            val matchCategory = selectedCategoryFilter == "all" || p.categoryId == selectedCategoryFilter
+            val matchQuery = searchQuery.isBlank() ||
+                    p.nameAr.contains(searchQuery, ignoreCase = true) ||
+                    p.nameEn.contains(searchQuery, ignoreCase = true) ||
+                    p.descriptionAr.contains(searchQuery, ignoreCase = true)
+            matchCategory && matchQuery
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .testTag("admin_menu_tab")
     ) {
-        // Sub-tabs & Add Action
+        // Sub-tabs & Add Action Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 modifier = Modifier
-                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
                     .padding(4.dp)
             ) {
                 Surface(
                     color = if (subTab == 0) FlameOrange else Color.Transparent,
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.clickable { subTab = 0 }
                 ) {
                     Text(
                         text = if (isArabic) "الوجبات (${products.size})" else "Products (${products.size})",
                         color = if (subTab == 0) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                     )
                 }
 
                 Surface(
                     color = if (subTab == 1) FlameOrange else Color.Transparent,
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.clickable { subTab = 1 }
                 ) {
                     Text(
                         text = if (isArabic) "الأصناف (${categories.size})" else "Categories (${categories.size})",
                         color = if (subTab == 1) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                     )
                 }
             }
@@ -1352,7 +1465,7 @@ fun AdminMenuTab(isArabic: Boolean) {
                 },
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = FlameOrange),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 modifier = Modifier.testTag("admin_add_item_btn")
             ) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -1366,75 +1479,254 @@ fun AdminMenuTab(isArabic: Boolean) {
         }
 
         if (categoryToDeleteError != null) {
-            Text(
-                text = categoryToDeleteError!!,
-                color = StatusCancelled,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-            )
+            Surface(
+                color = StatusCancelled.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = categoryToDeleteError!!,
+                        color = StatusCancelled,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = { categoryToDeleteError = null },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = StatusCancelled, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
         }
 
         // SubTab 0: Products list
         if (subTab == 0) {
-            LazyColumn(
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(products, key = { it.id }) { product ->
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier.fillMaxWidth()
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Search Bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text(if (isArabic) "ابحث باسم الوجبة أو المكونات..." else "Search meal name...", fontSize = 12.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.outline) },
+                    trailingIcon = {
+                        if (searchQuery.isNotBlank()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                )
+
+                // Category Filter Chips
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        FilterChip(
+                            selected = selectedCategoryFilter == "all",
+                            onClick = { selectedCategoryFilter = "all" },
+                            label = { Text(if (isArabic) "الكل (${products.size})" else "All (${products.size})", fontSize = 11.5.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FlameOrange,
+                                selectedLabelColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+
+                    items(categories.sortedBy { it.order }, key = { it.id }) { cat ->
+                        val count = products.count { it.categoryId == cat.id }
+                        FilterChip(
+                            selected = selectedCategoryFilter == cat.id,
+                            onClick = { selectedCategoryFilter = cat.id },
+                            label = { Text("${if (isArabic) cat.nameAr else cat.nameEn} ($count)", fontSize = 11.5.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FlameOrange,
+                                selectedLabelColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+
+                if (filteredProducts.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            BunzoProductImage(
-                                imageUrl = product.image,
-                                imageRes = product.imageRes,
-                                contentDescription = if (isArabic) product.nameAr else product.nameEn,
-                                modifier = Modifier
-                                    .size(54.dp)
-                                    .clip(RoundedCornerShape(8.dp)),
-                                contentScale = ContentScale.Crop
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.RestaurantMenu,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(48.dp)
                             )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (isArabic) "لا توجد وجبات تطابق البحث" else "No meals matching search",
+                                color = MaterialTheme.colorScheme.outline,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 80.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(filteredProducts, key = { it.id }) { product ->
+                            Card(
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (product.isAvailable) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = if (product.isAvailable) 2.dp else 0.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    // Image Thumbnail
+                                    Box(
+                                        modifier = Modifier
+                                            .size(62.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    ) {
+                                        BunzoProductImage(
+                                            imageUrl = product.image,
+                                            imageRes = product.imageRes,
+                                            contentDescription = if (isArabic) product.nameAr else product.nameEn,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        if (!product.isAvailable) {
+                                            Surface(
+                                                color = Color.Black.copy(alpha = 0.6f),
+                                                modifier = Modifier.fillMaxSize()
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Text(
+                                                        text = if (isArabic) "نفد" else "Sold",
+                                                        color = Color.White,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = if (isArabic) product.nameAr else product.nameEn,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                                Text(
-                                    text = formatCurrency(product.effectivePrice, isArabic),
-                                    color = FlameOrange,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.5.sp
-                                )
-                                val catName = categories.find { it.id == product.categoryId }?.let { if (isArabic) it.nameAr else it.nameEn } ?: ""
-                                Text(text = "صنف: $catName", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                                    // Meal Information
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isArabic) product.nameAr else product.nameEn,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.5.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            if (product.isFeatured) {
+                                                Surface(
+                                                    color = AmberGoldDark.copy(alpha = 0.15f),
+                                                    shape = RoundedCornerShape(4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = if (isArabic) "مميز" else "Featured",
+                                                        color = AmberGoldDark,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
 
-                            // Interactive Toggles: Available & Featured
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(text = if (isArabic) "متاح" else "Active", fontSize = 10.sp)
-                                Switch(
-                                    checked = product.isAvailable,
-                                    onCheckedChange = { BunzoRepository.toggleProductAvailability(product.id) },
-                                    modifier = Modifier.testTag("toggle_avail_${product.id}")
-                                )
-                            }
+                                        // Pricing row
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = formatCurrency(product.effectivePrice, isArabic),
+                                                color = FlameOrange,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                            if (product.discountPrice != null && product.discountPrice > 0) {
+                                                Text(
+                                                    text = formatCurrency(product.price, isArabic),
+                                                    color = MaterialTheme.colorScheme.outline,
+                                                    fontSize = 11.sp,
+                                                    style = androidx.compose.ui.text.TextStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
+                                                )
+                                            }
+                                        }
 
-                            IconButton(onClick = { productToEdit = product }) {
-                                Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
-                            }
+                                        val catName = categories.find { it.id == product.categoryId }?.let { if (isArabic) it.nameAr else it.nameEn } ?: (if (isArabic) "عام" else "General")
+                                        Text(
+                                            text = "${if (isArabic) "الصنف:" else "Category:"} $catName",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
 
-                            IconButton(onClick = { BunzoRepository.deleteProduct(product.id) }) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = StatusCancelled)
+                                    // Availability Toggle
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = if (product.isAvailable) (if (isArabic) "متاح" else "Active") else (if (isArabic) "موقوف" else "Paused"),
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (product.isAvailable) StatusDelivered else MaterialTheme.colorScheme.outline
+                                        )
+                                        Switch(
+                                            checked = product.isAvailable,
+                                            onCheckedChange = { BunzoRepository.toggleProductAvailability(product.id) },
+                                            modifier = Modifier.testTag("toggle_avail_${product.id}")
+                                        )
+                                    }
+
+                                    // Edit & Delete Actions
+                                    IconButton(
+                                        onClick = { productToEdit = product },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                    }
+
+                                    IconButton(
+                                        onClick = { productToDelete = product },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = StatusCancelled, modifier = Modifier.size(18.dp))
+                                    }
+                                }
                             }
                         }
                     }
@@ -1443,7 +1735,7 @@ fun AdminMenuTab(isArabic: Boolean) {
         } else {
             // SubTab 1: Categories list
             LazyColumn(
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -1452,6 +1744,7 @@ fun AdminMenuTab(isArabic: Boolean) {
                     Card(
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -1459,30 +1752,55 @@ fun AdminMenuTab(isArabic: Boolean) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column {
-                                Text(
-                                    text = "${cat.nameAr} (${cat.nameEn})",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                                Text(
-                                    text = "الترتيب: ${cat.order} | وجبات مرتبطة: $linkedProductsCount",
-                                    fontSize = 11.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    val res = BunzoRepository.deleteCategory(cat.id)
-                                    res.onFailure {
-                                        categoryToDeleteError = it.message
-                                    }.onSuccess {
-                                        categoryToDeleteError = null
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = FlameOrange.copy(alpha = 0.12f),
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "#${cat.order}",
+                                            fontWeight = FontWeight.Bold,
+                                            color = FlameOrange,
+                                            fontSize = 12.sp
+                                        )
                                     }
                                 }
-                            ) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = StatusCancelled)
+
+                                Column {
+                                    Text(
+                                        text = "${cat.nameAr} - ${cat.nameEn}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.5.sp
+                                    )
+                                    Text(
+                                        text = if (isArabic) "عدد الوجبات المرتبطة: $linkedProductsCount" else "Linked meals: $linkedProductsCount",
+                                        fontSize = 11.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { categoryToEdit = cat }) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Edit Category", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val res = BunzoRepository.deleteCategory(cat.id)
+                                        res.onFailure {
+                                            categoryToDeleteError = it.message
+                                        }.onSuccess {
+                                            categoryToDeleteError = null
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete Category", tint = StatusCancelled, modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
                     }
@@ -1491,32 +1809,83 @@ fun AdminMenuTab(isArabic: Boolean) {
         }
     }
 
-    // Add Category Dialog
-    if (showAddCategoryDialog) {
-        var nameAr by remember { mutableStateOf("") }
-        var nameEn by remember { mutableStateOf("") }
-        var order by remember { mutableIntStateOf(categories.size + 1) }
+    // Product Delete Confirmation Dialog
+    if (productToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { productToDelete = null },
+            title = { Text(if (isArabic) "تأكيد حذف الوجبة" else "Delete Meal Confirmation") },
+            text = {
+                Text(
+                    if (isArabic)
+                        "هل أنت متأكد من حذف وجبة '${productToDelete?.nameAr}'؟ سيتم إزالتها من القائمة نهائياً."
+                    else
+                        "Are you sure you want to delete '${productToDelete?.nameEn}'?"
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        productToDelete?.let { BunzoRepository.deleteProduct(it.id) }
+                        productToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = StatusCancelled)
+                ) {
+                    Text(if (isArabic) "حذف" else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { productToDelete = null }) {
+                    Text(if (isArabic) "إلغاء" else "Cancel")
+                }
+            }
+        )
+    }
 
-        Dialog(onDismissRequest = { showAddCategoryDialog = false }) {
+    // Add / Edit Category Dialog
+    if (showAddCategoryDialog || categoryToEdit != null) {
+        val isEditing = categoryToEdit != null
+        var nameAr by remember { mutableStateOf(categoryToEdit?.nameAr ?: "") }
+        var nameEn by remember { mutableStateOf(categoryToEdit?.nameEn ?: "") }
+        var order by remember { mutableIntStateOf(categoryToEdit?.order ?: (categories.size + 1)) }
+
+        Dialog(onDismissRequest = {
+            showAddCategoryDialog = false
+            categoryToEdit = null
+        }) {
             Card(
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.padding(8.dp)
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
-                    Text(text = if (isArabic) "إضافة صنف جديد" else "Add New Category", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = if (isEditing) (if (isArabic) "تعديل الصنف" else "Edit Category") else (if (isArabic) "إضافة صنف جديد" else "Add New Category"),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = nameAr,
                         onValueChange = { nameAr = it },
-                        label = { Text("الاسم بالعربية") },
+                        label = { Text(if (isArabic) "الاسم بالعربية *" else "Name in Arabic *") },
+                        singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = nameEn,
                         onValueChange = { nameEn = it },
-                        label = { Text("Name in English") },
+                        label = { Text(if (isArabic) "الاسم بالإنجليزية" else "Name in English") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = order.toString(),
+                        onValueChange = { order = it.toIntOrNull() ?: order },
+                        label = { Text(if (isArabic) "رقم الترتيب في القائمة" else "Display Order") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(14.dp))
@@ -1524,19 +1893,27 @@ fun AdminMenuTab(isArabic: Boolean) {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(onClick = { showAddCategoryDialog = false }) {
+                        TextButton(onClick = {
+                            showAddCategoryDialog = false
+                            categoryToEdit = null
+                        }) {
                             Text(if (isArabic) "إلغاء" else "Cancel")
                         }
                         Button(
                             onClick = {
                                 if (nameAr.isNotBlank()) {
-                                    BunzoRepository.addCategory(nameAr, nameEn.ifBlank { nameAr }, order)
+                                    if (isEditing) {
+                                        BunzoRepository.updateCategory(categoryToEdit!!.id, nameAr, nameEn.ifBlank { nameAr }, order)
+                                    } else {
+                                        BunzoRepository.addCategory(nameAr, nameEn.ifBlank { nameAr }, order)
+                                    }
                                     showAddCategoryDialog = false
+                                    categoryToEdit = null
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = FlameOrange)
                         ) {
-                            Text(if (isArabic) "إضافة" else "Add")
+                            Text(if (isEditing) (if (isArabic) "حفظ" else "Save") else (if (isArabic) "إضافة" else "Add"))
                         }
                     }
                 }
@@ -1780,11 +2157,41 @@ fun AdminMenuTab(isArabic: Boolean) {
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Category Selector Chips
+                    Text(
+                        text = if (isArabic) "اختيار الصنف / الفئة *" else "Select Category *",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.5.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(categories.sortedBy { it.order }, key = { it.id }) { cat ->
+                            val isSelected = (selectedCatId == cat.id)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { selectedCatId = cat.id },
+                                label = { Text(if (isArabic) cat.nameAr else cat.nameEn, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = FlameOrange,
+                                    selectedLabelColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(10.dp))
                     OutlinedTextField(
                         value = nameAr,
                         onValueChange = { nameAr = it },
-                        label = { Text(if (isArabic) "اسم الوجبة (عربي)" else "Meal Name (Arabic)") },
+                        label = { Text(if (isArabic) "اسم الوجبة (عربي) *" else "Meal Name (Arabic) *") },
+                        singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1792,6 +2199,7 @@ fun AdminMenuTab(isArabic: Boolean) {
                         value = nameEn,
                         onValueChange = { nameEn = it },
                         label = { Text("Meal Name (English)") },
+                        singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1855,6 +2263,10 @@ fun AdminMenuTab(isArabic: Boolean) {
                             onClick = {
                                 val price = priceStr.toDoubleOrNull() ?: 0.0
                                 val discountPrice = discountPriceStr.toDoubleOrNull()
+                                if (nameAr.isBlank() || price <= 0) {
+                                    return@Button
+                                }
+                                val effectiveCatId = selectedCatId.ifBlank { categories.firstOrNull()?.id ?: "general" }
                                 if (editingProduct == null) {
                                     BunzoRepository.addProduct(
                                         nameAr = nameAr,
@@ -1863,7 +2275,7 @@ fun AdminMenuTab(isArabic: Boolean) {
                                         descriptionEn = descEn.ifBlank { descAr },
                                         price = price,
                                         discountPrice = discountPrice,
-                                        categoryId = selectedCatId,
+                                        categoryId = effectiveCatId,
                                         isAvailable = isAvailable,
                                         isFeatured = isFeatured,
                                         image = imageUrl,
@@ -1878,7 +2290,7 @@ fun AdminMenuTab(isArabic: Boolean) {
                                         descriptionEn = descEn.ifBlank { descAr },
                                         price = price,
                                         discountPrice = discountPrice,
-                                        categoryId = selectedCatId,
+                                        categoryId = effectiveCatId,
                                         isAvailable = isAvailable,
                                         isFeatured = isFeatured,
                                         image = imageUrl,
@@ -2169,16 +2581,37 @@ fun AdminCustomersTab(isArabic: Boolean) {
     var customerToEdit by remember { mutableStateOf<User?>(null) }
     var customerToDelete by remember { mutableStateOf<User?>(null) }
 
-    val customers = remember(users, searchQuery, selectedRegionFilter) {
-        users.filter { user ->
-            val matchRole = user.role == "customer"
+    val customers = remember(users, orders, searchQuery, selectedRegionFilter) {
+        val registeredCustomers = users.filter { it.role.isBlank() || it.role.equals("customer", ignoreCase = true) }
+
+        // Also derive any customers from placed orders who aren't yet in registered list
+        val orderCustomers = orders.mapNotNull { ord ->
+            if (ord.customerPhone.isNotBlank() && registeredCustomers.none { it.phone == ord.customerPhone }) {
+                val nameParts = ord.customerName.trim().split(" ")
+                User(
+                    uid = ord.customerId.ifBlank { "order_${ord.customerPhone.filter { it.isDigit() }}" },
+                    firstName = nameParts.firstOrNull() ?: ord.customerName,
+                    lastName = nameParts.drop(1).joinToString(" "),
+                    phone = ord.customerPhone,
+                    region = ord.customerRegion,
+                    address = ord.address,
+                    role = "customer",
+                    createdAt = ord.createdAt,
+                    updatedAt = ord.updatedAt
+                )
+            } else null
+        }.distinctBy { it.phone }
+
+        val allCustomers = (registeredCustomers + orderCustomers).distinctBy { if (it.phone.isNotBlank()) it.phone else it.uid }
+
+        allCustomers.filter { user ->
             val matchRegion = selectedRegionFilter == null || user.region == selectedRegionFilter
             val matchQuery = searchQuery.isBlank() ||
                     user.fullName.contains(searchQuery, ignoreCase = true) ||
                     user.phone.contains(searchQuery, ignoreCase = true) ||
                     user.address.contains(searchQuery, ignoreCase = true)
-            matchRole && matchRegion && matchQuery
-        }
+            matchRegion && matchQuery
+        }.sortedByDescending { it.updatedAt }
     }
 
     LazyColumn(
@@ -2221,8 +2654,69 @@ fun AdminCustomersTab(isArabic: Boolean) {
             )
         }
 
-        items(customers, key = { it.uid }) { cust ->
-            val custOrders = orders.filter { it.customerId == cust.uid }
+        // Region Filter Chips
+        item {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                item {
+                    FilterChip(
+                        selected = selectedRegionFilter == null,
+                        onClick = { selectedRegionFilter = null },
+                        label = { Text(if (isArabic) "كل المناطق" else "All Regions", fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = FlameOrange,
+                            selectedLabelColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+
+                val availableRegions = regions.map { if (isArabic) it.nameAr else it.nameEn }.distinct()
+                items(availableRegions) { regName ->
+                    FilterChip(
+                        selected = selectedRegionFilter == regName,
+                        onClick = { selectedRegionFilter = if (selectedRegionFilter == regName) null else regName },
+                        label = { Text(regName, fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = FlameOrange,
+                            selectedLabelColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+            }
+        }
+
+        if (customers.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.PeopleOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (isArabic) "لا يوجد عملاء يطابقون شروط البحث" else "No customers found matching search",
+                            color = MaterialTheme.colorScheme.outline,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        items(customers, key = { it.uid.ifBlank { it.phone } }) { cust ->
+            val custOrders = orders.filter { it.customerId == cust.uid || (cust.phone.isNotBlank() && it.customerPhone == cust.phone) }
             val totalSpent = custOrders.filter { it.status != "cancelled" }.sumOf { it.total }
 
             Card(

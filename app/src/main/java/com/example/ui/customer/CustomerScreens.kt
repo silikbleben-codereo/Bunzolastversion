@@ -1961,6 +1961,7 @@ fun CartAndCheckoutScreen(
     modifier: Modifier = Modifier,
     onUpdateNotes: (Product, String) -> Unit = { _, _ -> }
 ) {
+    val context = LocalContext.current
     val currentUser by BunzoRepository.currentUser.collectAsState()
     val regions by BunzoRepository.regions.collectAsState()
 
@@ -3021,6 +3022,7 @@ fun CartAndCheckoutScreen(
                         status = "received"
                     )
 
+                    BunzoRepository.ensureFirebaseInitialized(context)
                     val placed = BunzoRepository.placeOrder(newOrder)
                     onClearCart()
                     onOrderPlaced(placed)
@@ -4495,6 +4497,7 @@ fun CustomerAuthDialog(
                                     }
                                 } else {
                                     // Customer login with phone
+                                    BunzoRepository.ensureFirebaseInitialized(context)
                                     val custRes = BunzoRepository.loginCustomer(targetId, loginPassword)
                                     isSubmitting = false
                                     custRes.onSuccess {
@@ -4749,6 +4752,7 @@ fun CustomerAuthDialog(
                             isSubmitting = true
                             regError = null
                             coroutineScope.launch {
+                                BunzoRepository.ensureFirebaseInitialized(context)
                                 val res = BunzoRepository.registerCustomer(
                                     firstName = regFirstName,
                                     lastName = regLastName,

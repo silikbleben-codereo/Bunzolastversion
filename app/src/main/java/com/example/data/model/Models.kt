@@ -1,5 +1,8 @@
 package com.example.data.model
 
+import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.IgnoreExtraProperties
+
 enum class UserRole(val rawValue: String, val titleAr: String, val titleEn: String) {
     CUSTOMER("customer", "زبون", "Customer"),
     KITCHEN("kitchen", "المطبخ (KDS)", "Kitchen (KDS)"),
@@ -12,6 +15,7 @@ enum class UserRole(val rawValue: String, val titleAr: String, val titleEn: Stri
     }
 }
 
+@IgnoreExtraProperties
 data class User(
     val uid: String = "",
     val firstName: String = "",
@@ -26,11 +30,15 @@ data class User(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
+    @get:Exclude
     val fullName: String get() = "$firstName $lastName".trim()
+    @get:Exclude
     val displayEmail: String get() = if (email.isNotBlank()) email else (if (phone.isNotBlank()) "$phone@bunzo.com" else "")
+    @get:Exclude
     val userRole: UserRole get() = UserRole.fromString(role)
 }
 
+@IgnoreExtraProperties
 data class AuditLog(
     val id: String = "",
     val actorUid: String = "",
@@ -43,12 +51,14 @@ data class AuditLog(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+@IgnoreExtraProperties
 data class Region(
     val id: String = "",
     val nameAr: String = "",
     val nameEn: String = ""
 )
 
+@IgnoreExtraProperties
 data class Category(
     val id: String = "",
     val nameAr: String = "",
@@ -58,6 +68,7 @@ data class Category(
     val order: Int = 0
 )
 
+@IgnoreExtraProperties
 data class Product(
     val id: String = "",
     val nameAr: String = "",
@@ -72,9 +83,11 @@ data class Product(
     val isAvailable: Boolean = true,
     val isFeatured: Boolean = false
 ) {
+    @get:Exclude
     val effectivePrice: Double get() = discountPrice ?: price
 }
 
+@IgnoreExtraProperties
 data class Branch(
     val id: String = "",
     val name: String = "",
@@ -85,6 +98,7 @@ data class Branch(
     val workingHours: String = "12:00 PM - 02:00 AM"
 )
 
+@IgnoreExtraProperties
 data class Coupon(
     val id: String = "",
     val code: String = "",
@@ -94,14 +108,17 @@ data class Coupon(
     val expiryDate: String = "2026-12-31"
 )
 
+@IgnoreExtraProperties
 data class CartItem(
     val product: Product,
     val quantity: Int = 1,
     val specialNotes: String = ""
 ) {
+    @get:Exclude
     val totalPrice: Double get() = product.effectivePrice * quantity
 }
 
+@IgnoreExtraProperties
 data class OrderItem(
     val productId: String = "",
     val name: String = "",
@@ -138,6 +155,7 @@ enum class OrderType(val rawValue: String, val titleAr: String, val titleEn: Str
     }
 }
 
+@IgnoreExtraProperties
 data class Order(
     val id: String = "",
     val customerId: String = "",
@@ -163,6 +181,8 @@ data class Order(
     val deliveredAt: Long? = null,
     val isReadByAdmin: Boolean = false
 ) {
+    @get:Exclude
     val orderStatus: OrderStatus get() = OrderStatus.fromString(status)
+    @get:Exclude
     val parsedOrderType: OrderType get() = OrderType.fromString(orderType)
 }

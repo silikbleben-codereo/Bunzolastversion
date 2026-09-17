@@ -1,0 +1,129 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for Authentication and RBAC
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Role resolution: checks Custom Claim first, then falls back to Firestore user document
+    function hasRole(roleName) {
+      return isAuthenticated() && (
+        request.auth.token.role == roleName ||
+        (request.auth.token.role == null &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == roleName)
+      );
+    }
+
+    function isAdmin() {
+      return hasRole('admin') || hasRole('ADMIN');
+    }
+
+    function isKitchen() {
+      return hasRole('kitchen') || hasRole('KITCHEN');
+    }
+
+    function isActiveStaff() {
+      return (isAdmin() || isKitchen()) && (
+        request.auth.token.active == true ||
+        (request.auth.token.active == null &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true)
+      );
+    }
+
+    // USERS COLLECTION (/users/{userId})
+    match /users/{userId} {
+      // 1. Any authenticated user can read their own profile; Admin can read all; Kitchen CANNOT read customer profiles
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+
+      // 2. User registration: Customer can create their own profile, but MUST NOT set role to admin/kitchen
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        (request.auth.uid == userId &&
+         request.resource.data.role == 'customer' &&
+         request.resource.data.active == true)
+      );
+
+      // 3. User update: Strict prevention of Privilege Escalation.
+      // Customer can update profile, but CANNOT modify 'role' or 'active' status.
+      // Admin can update any fields (including role and active status for staff).
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (request.auth.uid == userId &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'active', 'uid']))
+      );
+
+      // 4. Only Admin can delete a user
+      allow delete: if isAdmin();
+    }
+
+    // PRODUCTS COLLECTION (/products/{productId})
+    match /products/{productId} {
+      // Anyone (even public or customer) can read available products
+      allow read: if true;
+      // Only Admin can create, modify, or delete products
+      allow write: if isAdmin();
+    }
+
+    // CATEGORIES COLLECTION (/categories/{categoryId})
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // BRANCHES COLLECTION (/branches/{branchId})
+    match /branches/{branchId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // SETTINGS COLLECTION (/settings/{docId})
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ORDERS COLLECTION (/orders/{orderId})
+    match /orders/{orderId} {
+      // Customer can read only their own orders
+      // Active Kitchen staff can read orders
+      // Admin can read all orders
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isKitchen() && isActiveStaff()) ||
+        (resource.data.customerId == request.auth.uid)
+      );
+
+      // Customer can create an order for themselves with initial status "received" or "NEW"
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        (request.resource.data.customerId == request.auth.uid &&
+         (request.resource.data.status in ['NEW', 'received']))
+      );
+
+      // Status updates:
+      // Active Kitchen staff can only update order status between received/preparing/ready_for_pickup/on_the_way
+      // Kitchen is STRICTLY FORBIDDEN from modifying price, customerId, payment details, or items
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (isKitchen() && isActiveStaff() &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'acceptedAt', 'deliveredAt', 'isReadByAdmin', 'cancelReason']) &&
+         (request.resource.data.status in ['NEW', 'PREPARING', 'READY', 'received', 'preparing', 'ready_for_pickup', 'on_the_way', 'served', 'delivered']))
+      );
+
+      // Only Admin can delete/cancel finalized orders
+      allow delete: if isAdmin();
+    }
+
+    // AUDIT LOGS COLLECTION (/auditLogs/{logId})
+    // Strictly read & managed by ADMIN. Kitchen and Customers have ZERO access.
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      // Any authenticated user or Cloud Function can append an audit record, but never edit or delete
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+  }
+}

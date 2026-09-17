@@ -1,0 +1,6 @@
+{
+  "name": "Bunzo",
+  "description": "Bunzo gourmet burger restaurant ordering application with live real-time order tracking and admin management dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

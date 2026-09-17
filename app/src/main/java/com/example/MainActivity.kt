@@ -49,6 +49,7 @@ enum class AppDestination {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        BunzoRepository.initAppContext(applicationContext)
         BunzoSoundManager.init(applicationContext)
         enableEdgeToEdge()
         setContent {

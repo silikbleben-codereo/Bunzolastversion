@@ -21,6 +21,14 @@ jobs:
       - name: Create .env file
         run: echo "GEMINI_API_KEY=placeholder" > .env
 
+      - name: Verify google-services.json
+        run: |
+          if [ -f app/google-services.json ]; then
+            echo "google-services.json is present in app/ directory."
+          else
+            echo "Warning: app/google-services.json was not found in repository."
+          fi
+
       - name: Remove debug signing config line
         run: |
           sed -i '/signingConfig = signingConfigs.getByName("debugConfig")/d' app/build.gradle.kts

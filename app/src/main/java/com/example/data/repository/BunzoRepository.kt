@@ -1,9 +1,11 @@
 package com.example.data.repository
 
+import android.content.Context
 import android.util.Log
 import com.example.R
 import com.example.data.model.*
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -76,6 +78,7 @@ object BunzoRepository {
     // Firebase Architecture references
     private var auth: FirebaseAuth? = null
     private var firestore: FirebaseFirestore? = null
+    private var appContext: Context? = null
 
     val isFirebaseConnected = MutableStateFlow(false)
 
@@ -84,22 +87,50 @@ object BunzoRepository {
         seedInitialMenuAndBranches()
     }
 
-    private fun initFirebase() {
+    fun initAppContext(context: Context) {
+        appContext = context.applicationContext
+        ensureFirebaseInitialized(appContext)
+    }
+
+    fun ensureFirebaseInitialized(context: Context? = null) {
+        if (auth != null && firestore != null) return
+
+        val targetContext = context?.applicationContext ?: appContext
         try {
-            // Check if default FirebaseApp is initialized
-            val app = try { FirebaseApp.getInstance() } catch (e: Exception) { null }
+            var app = try { FirebaseApp.getInstance() } catch (_: Exception) { null }
+            if (app == null && targetContext != null) {
+                try {
+                    val options = FirebaseOptions.Builder()
+                        .setApplicationId("1:85114101986:android:a1530c23ddd262a3983ebb")
+                        .setApiKey("AIzaSyDukMQmrufTfXCdHNoa-YXp4kRDo5JN_Dk")
+                        .setProjectId("bunzo-a9051")
+                        .setStorageBucket("bunzo-a9051.firebasestorage.app")
+                        .setGcmSenderId("85114101986")
+                        .build()
+                    app = FirebaseApp.initializeApp(targetContext, options)
+                    Log.i("BunzoRepository", "Firebase initialized via programmatic options fallback successfully.")
+                } catch (e: Exception) {
+                    Log.w("BunzoRepository", "Programmatic FirebaseApp initialization attempt: ${e.message}")
+                    app = try { FirebaseApp.getInstance() } catch (_: Exception) { null }
+                }
+            }
+
             if (app != null) {
-                auth = FirebaseAuth.getInstance()
-                firestore = FirebaseFirestore.getInstance()
+                auth = FirebaseAuth.getInstance(app)
+                firestore = FirebaseFirestore.getInstance(app)
                 isFirebaseConnected.value = true
                 initFirestoreListeners()
                 Log.i("BunzoRepository", "Firebase Auth & Cloud Firestore successfully connected.")
             } else {
-                Log.w("BunzoRepository", "Firebase not yet initialized. Please place google-services.json in /app/google-services.json.")
+                Log.w("BunzoRepository", "Firebase not yet initialized. Awaiting Context or google-services config.")
             }
         } catch (e: Exception) {
-            Log.w("BunzoRepository", "Firebase initialization deferred: ${e.message}")
+            Log.e("BunzoRepository", "Failed to ensure Firebase initialized: ${e.message}")
         }
+    }
+
+    private fun initFirebase() {
+        ensureFirebaseInitialized()
     }
 
     private fun initFirestoreListeners() {
@@ -487,6 +518,9 @@ object BunzoRepository {
         val cleanEmail = sanitizeInputString(identifier).lowercase()
 
         try {
+            if (auth == null || firestore == null) {
+                ensureFirebaseInitialized(appContext)
+            }
             val currentAuth = auth
             val currentDb = firestore
 
@@ -576,7 +610,7 @@ object BunzoRepository {
 
                 Result.success(resolvedStaff)
             } else {
-                Result.failure(Exception("تتطلب بوابة الموظفين تفعيل Firebase Auth عبر google-services.json الحقيقي"))
+                Result.failure(Exception("تعذر الاتصال بخدمة Firebase. يرجى التحقق من اتصال الإنترنت وإعادة المحاولة."))
             }
         } catch (e: Exception) {
             Log.e("BunzoRepository", "loginStaff error", e)

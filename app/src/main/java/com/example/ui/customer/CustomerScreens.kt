@@ -4471,6 +4471,7 @@ fun CustomerAuthDialog(
                             coroutineScope.launch {
                                 val isEmailMode = loginMethod == 1 || targetId.contains("@")
                                 if (isEmailMode) {
+                                    BunzoRepository.ensureFirebaseInitialized(context)
                                     // 1. First attempt: Staff / Admin authentication
                                     val staffRes = BunzoRepository.loginStaff(targetId, loginPassword)
                                     if (staffRes.isSuccess) {

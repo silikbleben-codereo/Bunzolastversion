@@ -3106,6 +3106,8 @@ fun OrderTrackingScreen(
     val currentUser by BunzoRepository.currentUser.collectAsState()
     val order = if (!orderId.isNullOrBlank()) orders.find { it.id == orderId } else null
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
     var searchOrderIdInput by remember { mutableStateOf("") }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
@@ -3400,6 +3402,55 @@ fun OrderTrackingScreen(
                                 fontSize = 12.sp,
                                 color = FlameOrangeDark,
                                 fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isRefreshing = true
+                                BunzoRepository.syncFromCloud()
+                                kotlinx.coroutines.delay(400)
+                                isRefreshing = false
+                                Toast.makeText(
+                                    context,
+                                    if (isArabic) "تم تحديث بيانات التتبع بنجاح ✓" else "Tracking refreshed successfully ✓",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FlameOrange),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                            .testTag("refresh_tracking_button")
+                    ) {
+                        if (isRefreshing) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isArabic) "جارٍ التحديث..." else "Refreshing...",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isArabic) "تحديث التتبع الآن 🔄" else "Refresh Tracking Now",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
                             )
                         }
                     }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.example.R
 import com.example.data.model.*
+import com.example.util.BunzoNotificationHelper
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
@@ -99,9 +100,84 @@ object BunzoRepository {
         seedInitialMenuAndBranches()
     }
 
+    private const val PREFS_NAME = "bunzo_customer_prefs"
+    private const val KEY_CUSTOMER_UID = "customer_uid"
+    private const val KEY_CUSTOMER_FIRST_NAME = "customer_first_name"
+    private const val KEY_CUSTOMER_LAST_NAME = "customer_last_name"
+    private const val KEY_CUSTOMER_EMAIL = "customer_email"
+    private const val KEY_CUSTOMER_PHONE = "customer_phone"
+    private const val KEY_CUSTOMER_REGION = "customer_region"
+    private const val KEY_CUSTOMER_ADDRESS = "customer_address"
+    private const val KEY_CUSTOMER_ROLE = "customer_role"
+    private const val KEY_CUSTOMER_BRANCH = "customer_branch"
+
+    private fun saveCustomerSession(user: User) {
+        val ctx = appContext ?: return
+        try {
+            val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString(KEY_CUSTOMER_UID, user.uid)
+                .putString(KEY_CUSTOMER_FIRST_NAME, user.firstName)
+                .putString(KEY_CUSTOMER_LAST_NAME, user.lastName)
+                .putString(KEY_CUSTOMER_EMAIL, user.email)
+                .putString(KEY_CUSTOMER_PHONE, user.phone)
+                .putString(KEY_CUSTOMER_REGION, user.region)
+                .putString(KEY_CUSTOMER_ADDRESS, user.address)
+                .putString(KEY_CUSTOMER_ROLE, user.role)
+                .putString(KEY_CUSTOMER_BRANCH, user.branchId)
+                .apply()
+        } catch (e: Exception) {
+            Log.w("BunzoRepository", "Failed to save customer session: ${e.message}")
+        }
+    }
+
+    private fun loadCustomerSession(): User? {
+        val ctx = appContext ?: return null
+        try {
+            val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val uid = prefs.getString(KEY_CUSTOMER_UID, null) ?: return null
+            if (uid.isBlank()) return null
+            return User(
+                uid = uid,
+                firstName = prefs.getString(KEY_CUSTOMER_FIRST_NAME, "") ?: "",
+                lastName = prefs.getString(KEY_CUSTOMER_LAST_NAME, "") ?: "",
+                email = prefs.getString(KEY_CUSTOMER_EMAIL, "") ?: "",
+                phone = prefs.getString(KEY_CUSTOMER_PHONE, "") ?: "",
+                region = prefs.getString(KEY_CUSTOMER_REGION, "") ?: "",
+                address = prefs.getString(KEY_CUSTOMER_ADDRESS, "") ?: "",
+                role = prefs.getString(KEY_CUSTOMER_ROLE, "customer") ?: "customer",
+                branchId = prefs.getString(KEY_CUSTOMER_BRANCH, "main_branch") ?: "main_branch",
+                active = true
+            )
+        } catch (e: Exception) {
+            Log.w("BunzoRepository", "Failed to load customer session: ${e.message}")
+            return null
+        }
+    }
+
+    private fun clearCustomerSession() {
+        val ctx = appContext ?: return
+        try {
+            val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().clear().apply()
+        } catch (e: Exception) {
+            Log.w("BunzoRepository", "Failed to clear customer session: ${e.message}")
+        }
+    }
+
     fun initAppContext(context: Context) {
         appContext = context.applicationContext
         ensureFirebaseInitialized(appContext)
+
+        // Restore persisted customer session if not logged in
+        if (currentUser.value == null) {
+            loadCustomerSession()?.let { savedUser ->
+                currentUser.value = savedUser
+                _users.update { list -> if (list.any { it.uid == savedUser.uid }) list else list + savedUser }
+                updateRestrictedListeners()
+                Log.i("BunzoRepository", "Restored persisted customer session: ${savedUser.fullName} (${savedUser.phone})")
+            }
+        }
     }
 
     fun ensureFirebaseInitialized(context: Context? = null) {
@@ -339,6 +415,8 @@ object BunzoRepository {
                 }
         }
     }
+
+    suspend fun syncFromCloud(context: Context? = null): Result<Int> = refreshFromFirestore(context)
 
     suspend fun refreshFromFirestore(context: Context? = null): Result<Int> = withContext(Dispatchers.IO) {
         ensureFirebaseInitialized(context ?: appContext)
@@ -826,6 +904,7 @@ object BunzoRepository {
 
             currentUser.value = newUser
             _users.update { list -> list.filterNot { it.uid == uid } + newUser }
+            saveCustomerSession(newUser)
             updateRestrictedListeners()
 
             Log.i("BunzoRepository", "Customer registered and synced: $uid (${newUser.fullName})")
@@ -900,6 +979,7 @@ object BunzoRepository {
 
                 currentUser.value = user
                 _users.update { list -> if (list.any { it.uid == user.uid }) list else list + user }
+                saveCustomerSession(user)
                 updateRestrictedListeners()
                 return@withContext Result.success(user)
             }
@@ -920,6 +1000,7 @@ object BunzoRepository {
                             ensureAuthenticatedForFirestore()
                             currentUser.value = foundUser
                             _users.update { list -> if (list.any { it.uid == foundUser.uid }) list else list + foundUser }
+                            saveCustomerSession(foundUser)
                             updateRestrictedListeners()
                             return@withContext Result.success(foundUser)
                         }
@@ -933,6 +1014,7 @@ object BunzoRepository {
             val existing = _users.value.find { it.phone == clean || it.phone == cleanDigits || it.email.equals(clean, ignoreCase = true) }
             if (existing != null) {
                 currentUser.value = existing
+                saveCustomerSession(existing)
                 updateRestrictedListeners()
                 Result.success(existing)
             } else {
@@ -947,7 +1029,24 @@ object BunzoRepository {
     fun logoutCustomer() {
         auth?.signOut()
         currentUser.value = null
+        clearCustomerSession()
         updateRestrictedListeners()
+    }
+
+    suspend fun syncCustomerDeviceToken(token: String) = withContext(Dispatchers.IO) {
+        val user = currentUser.value ?: return@withContext
+        val db = firestore ?: return@withContext
+        try {
+            db.collection("users").document(user.uid).update(
+                mapOf(
+                    "fcmToken" to token,
+                    "lastTokenUpdate" to com.google.firebase.Timestamp.now()
+                )
+            ).await()
+            Log.i("BunzoRepository", "Customer FCM device token synced for user: ${user.uid}")
+        } catch (e: Exception) {
+            Log.w("BunzoRepository", "Failed to sync device token: ${e.message}")
+        }
     }
 
     // Sanitize input strings for Unicode directional marks, Arabic digits, and edge spaces
@@ -1398,6 +1497,28 @@ object BunzoRepository {
                     order
                 }
             }
+        }
+
+        // Send instant notification to the customer device
+        val statusLabel = when (newStatus) {
+            "received", "pending" -> "تم استلام الطلب وبانتظار المتابعة"
+            "accepted" -> "تم قبول طلبك بنجاح وجارٍ التجهيز"
+            "preparing" -> "قيد التحضير والشواء في المطبخ 🍔🔥"
+            "ready", "ready_for_pickup" -> "طلبك جاهز للاستلام من الفرع 🎁"
+            "shipped", "on_the_way", "on_way" -> "خرج للتوصيل مع الكابتن 🛵"
+            "served" -> "تم تقديم طلبك للطاولة 🍽️"
+            "delivered" -> "تم التسليم بنجاح، بالهناء والشفاء! ✓"
+            "cancelled" -> "تم إلغاء الطلب${if (!cancelReason.isNullOrBlank()) ": $cancelReason" else ""}"
+            else -> newStatus
+        }
+
+        appContext?.let { ctx ->
+            BunzoNotificationHelper.showOrderNotification(
+                context = ctx,
+                orderId = orderId,
+                title = "تحديث جديد لطلبك #$orderId",
+                message = "حالة طلبك الآن: $statusLabel"
+            )
         }
 
         repositoryScope.launch {

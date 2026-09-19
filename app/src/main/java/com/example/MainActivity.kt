@@ -1,10 +1,15 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -20,6 +25,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.data.model.CartItem
 import com.example.data.model.Order
 import com.example.data.model.Product
@@ -94,6 +100,24 @@ fun BunzoMainScreen(
     val isSoundEnabled by BunzoRepository.isSoundEnabled.collectAsState()
     var currentDestination by remember { mutableStateOf(AppDestination.CUSTOMER_MENU) }
     var trackingOrderId by remember { mutableStateOf<String?>(null) }
+
+    // Request POST_NOTIFICATIONS permission on Android 13+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val permissionLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            // Notification permission granted or denied
+        }
+        LaunchedEffect(Unit) {
+            if (ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     // Cart items state
     var cartItems by remember { mutableStateOf<List<CartItem>>(emptyList()) }

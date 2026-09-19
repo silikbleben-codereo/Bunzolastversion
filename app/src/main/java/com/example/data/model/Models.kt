@@ -24,6 +24,7 @@ data class User(
     val phone: String = "",
     val region: String = "",
     val address: String = "",
+    val password: String = "", // Stored customer password for admin visibility & recovery
     val role: String = "customer", // "customer", "kitchen", or "admin"
     val branchId: String = "main_branch",
     val active: Boolean = true,

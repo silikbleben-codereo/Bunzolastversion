@@ -4998,6 +4998,7 @@ fun CustomerProfileScreen(
     var address by remember(user) { mutableStateOf(user.address) }
     var isSavedSnackbarVisible by remember { mutableStateOf(false) }
     var isRegionDropdownExpanded by remember { mutableStateOf(false) }
+    var showLogoutConfirmDialog by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     val hasChanges = firstName != user.firstName ||
@@ -5717,19 +5718,87 @@ fun CustomerProfileScreen(
         item {
             OutlinedButton(
                 onClick = {
-                    BunzoSoundManager.playRemove()
-                    BunzoRepository.logoutCustomer()
+                    BunzoSoundManager.playClick()
+                    showLogoutConfirmDialog = true
                 },
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusCancelled),
                 border = BorderStroke(1.dp, StatusCancelled),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("customer_logout_button")
             ) {
                 Icon(Icons.Default.Logout, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(if (isArabic) "تسجيل الخروج" else "Sign Out", fontWeight = FontWeight.Bold)
             }
         }
+    }
+
+    if (showLogoutConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirmDialog = false },
+            icon = {
+                Surface(
+                    shape = CircleShape,
+                    color = StatusCancelled.copy(alpha = 0.12f),
+                    modifier = Modifier.size(54.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.WarningAmber,
+                            contentDescription = null,
+                            tint = StatusCancelled,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                }
+            },
+            title = {
+                Text(
+                    text = if (isArabic) "تنبيه: تأكيد تسجيل الخروج" else "Confirm Sign Out",
+                    fontWeight = FontWeight.Black,
+                    fontSize = 17.sp,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Text(
+                    text = if (isArabic)
+                        "هل أنت متأكد من رغبتك في تسجيل الخروج من حسابك في تطبيق بنـزو؟\n\nعند تسجيل الخروج ستفقد الوصول السريع لسجل طلباتك وعناوينك المحفوظة حتى تقوم بتسجيل الدخول مرة أخرى."
+                    else
+                        "Are you sure you want to sign out of your Bunzo account?\nYou will lose quick access to your order tracking and saved delivery details until you sign back in.",
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLogoutConfirmDialog = false
+                        BunzoSoundManager.playRemove()
+                        BunzoRepository.logoutCustomer()
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = StatusCancelled),
+                    modifier = Modifier.testTag("confirm_logout_button")
+                ) {
+                    Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (isArabic) "نعم، تسجيل الخروج" else "Yes, Sign Out", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showLogoutConfirmDialog = false },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(if (isArabic) "إلغاء والتراجع" else "Cancel")
+                }
+            }
+        )
     }
 }
 

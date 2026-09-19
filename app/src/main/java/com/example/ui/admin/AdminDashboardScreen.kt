@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -2331,6 +2332,8 @@ fun AdminCustomerEditDialog(
     var region by remember(customer) { mutableStateOf(customer.region) }
     var address by remember(customer) { mutableStateOf(customer.address) }
     var isRegionDropdownExpanded by remember { mutableStateOf(false) }
+    var newPassword by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isSaving by remember { mutableStateOf(false) }
@@ -2502,6 +2505,88 @@ fun AdminCustomerEditDialog(
                     shape = RoundedCornerShape(10.dp)
                 )
 
+                // Customer Password Section (View & Modify by Admin)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, FlameOrange.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = FlameOrange,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = if (isArabic) "إدارة كلمة مرور العميل" else "Customer Password Management",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.5.sp
+                                )
+                            }
+                            IconButton(
+                                onClick = { showPassword = !showPassword },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (showPassword) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = "Toggle Password Visibility",
+                                    tint = FlameOrange,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = if (isArabic) "كلمة المرور الحالية:" else "Current Stored Password:",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = if (showPassword) {
+                                    customer.password.ifBlank { if (isArabic) "(افتراضية: 123456)" else "(Default: 123456)" }
+                                } else {
+                                    if (customer.password.isNotBlank()) "••••••••" else if (isArabic) "(افتراضية: 123456)" else "(Default: 123456)"
+                                },
+                                fontWeight = FontWeight.Black,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = newPassword,
+                            onValueChange = { newPassword = it },
+                            label = { Text(if (isArabic) "تعيين كلمة مرور جديدة للعميل (اختياري)" else "Set New Password (Optional)", fontSize = 11.sp) },
+                            placeholder = { Text(if (isArabic) "أدخل 6 خانات أو أكثر لتغييرها..." else "Enter 6+ characters to change...", fontSize = 11.sp) },
+                            leadingIcon = { Icon(Icons.Default.VpnKey, contentDescription = null, tint = FlameOrange, modifier = Modifier.size(16.dp)) },
+                            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                    }
+                }
+
                 // Action Buttons
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
@@ -2525,6 +2610,10 @@ fun AdminCustomerEditDialog(
                                 errorMessage = if (isArabic) "يرجى كتابة رقم الهاتف" else "Phone number is required"
                                 return@Button
                             }
+                            if (newPassword.isNotBlank() && newPassword.length < 6) {
+                                errorMessage = if (isArabic) "يجب أن تكون كلمة المرور 6 أحرف أو أرقام على الأقل" else "Password must be at least 6 characters"
+                                return@Button
+                            }
 
                             isSaving = true
                             errorMessage = null
@@ -2535,7 +2624,8 @@ fun AdminCustomerEditDialog(
                                     lastName = lastName,
                                     phone = phone,
                                     region = region,
-                                    address = address
+                                    address = address,
+                                    newPassword = if (newPassword.isNotBlank()) newPassword else null
                                 )
                                 isSaving = false
                                 res.onSuccess {
@@ -2773,6 +2863,54 @@ fun AdminCustomersTab(isArabic: Boolean) {
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Password Info Row for Admin
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = FlameOrange,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = if (isArabic) "كلمة المرور:" else "Password:",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = cust.password.ifBlank { if (isArabic) "(افتراضية: 123456)" else "(Default: 123456)" },
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (cust.password.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                )
+                            }
+                            TextButton(
+                                onClick = { customerToEdit = cust },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                modifier = Modifier.height(26.dp)
+                            ) {
+                                Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(12.dp), tint = FlameOrange)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(if (isArabic) "تعديل" else "Edit", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = FlameOrange)
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(8.dp))
                     Divider()

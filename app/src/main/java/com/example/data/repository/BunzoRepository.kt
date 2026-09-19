@@ -111,6 +111,15 @@ object BunzoRepository {
     private const val KEY_CUSTOMER_ROLE = "customer_role"
     private const val KEY_CUSTOMER_BRANCH = "customer_branch"
 
+    private const val PREFS_STAFF_NAME = "bunzo_staff_prefs"
+    private const val KEY_STAFF_UID = "staff_uid"
+    private const val KEY_STAFF_FIRST_NAME = "staff_first_name"
+    private const val KEY_STAFF_LAST_NAME = "staff_last_name"
+    private const val KEY_STAFF_EMAIL = "staff_email"
+    private const val KEY_STAFF_PHONE = "staff_phone"
+    private const val KEY_STAFF_ROLE = "staff_role"
+    private const val KEY_STAFF_BRANCH = "staff_branch"
+
     private fun saveCustomerSession(user: User) {
         val ctx = appContext ?: return
         try {
@@ -165,6 +174,56 @@ object BunzoRepository {
         }
     }
 
+    private fun saveStaffSession(user: User) {
+        val ctx = appContext ?: return
+        try {
+            val prefs = ctx.getSharedPreferences(PREFS_STAFF_NAME, Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString(KEY_STAFF_UID, user.uid)
+                .putString(KEY_STAFF_FIRST_NAME, user.firstName)
+                .putString(KEY_STAFF_LAST_NAME, user.lastName)
+                .putString(KEY_STAFF_EMAIL, user.email)
+                .putString(KEY_STAFF_PHONE, user.phone)
+                .putString(KEY_STAFF_ROLE, user.role)
+                .putString(KEY_STAFF_BRANCH, user.branchId)
+                .apply()
+        } catch (e: Exception) {
+            Log.w("BunzoRepository", "Failed to save staff session: ${e.message}")
+        }
+    }
+
+    private fun loadStaffSession(): User? {
+        val ctx = appContext ?: return null
+        try {
+            val prefs = ctx.getSharedPreferences(PREFS_STAFF_NAME, Context.MODE_PRIVATE)
+            val uid = prefs.getString(KEY_STAFF_UID, null) ?: return null
+            if (uid.isBlank()) return null
+            return User(
+                uid = uid,
+                firstName = prefs.getString(KEY_STAFF_FIRST_NAME, "") ?: "",
+                lastName = prefs.getString(KEY_STAFF_LAST_NAME, "") ?: "",
+                email = prefs.getString(KEY_STAFF_EMAIL, "") ?: "",
+                phone = prefs.getString(KEY_STAFF_PHONE, "") ?: "",
+                role = prefs.getString(KEY_STAFF_ROLE, "admin") ?: "admin",
+                branchId = prefs.getString(KEY_STAFF_BRANCH, "main_branch") ?: "main_branch",
+                active = true
+            )
+        } catch (e: Exception) {
+            Log.w("BunzoRepository", "Failed to load staff session: ${e.message}")
+            return null
+        }
+    }
+
+    private fun clearStaffSession() {
+        val ctx = appContext ?: return
+        try {
+            val prefs = ctx.getSharedPreferences(PREFS_STAFF_NAME, Context.MODE_PRIVATE)
+            prefs.edit().clear().apply()
+        } catch (e: Exception) {
+            Log.w("BunzoRepository", "Failed to clear staff session: ${e.message}")
+        }
+    }
+
     fun initAppContext(context: Context) {
         appContext = context.applicationContext
         ensureFirebaseInitialized(appContext)
@@ -176,6 +235,21 @@ object BunzoRepository {
                 _users.update { list -> if (list.any { it.uid == savedUser.uid }) list else list + savedUser }
                 updateRestrictedListeners()
                 Log.i("BunzoRepository", "Restored persisted customer session: ${savedUser.fullName} (${savedUser.phone})")
+            }
+        }
+
+        // Restore persisted staff/admin session if not logged in
+        if (staffSession.value == null) {
+            loadStaffSession()?.let { savedStaff ->
+                staffSession.value = savedStaff
+                if (savedStaff.role.equals("admin", ignoreCase = true) ||
+                    savedStaff.role.equals("manager", ignoreCase = true) ||
+                    savedStaff.role.equals("supervisor", ignoreCase = true) ||
+                    savedStaff.role.equals("owner", ignoreCase = true)) {
+                    currentAdminUser.value = savedStaff
+                }
+                updateRestrictedListeners()
+                Log.i("BunzoRepository", "Restored persisted staff/admin session: ${savedStaff.fullName} (${savedStaff.role})")
             }
         }
     }
@@ -607,6 +681,7 @@ object BunzoRepository {
                 phone = doc.getString("phone") ?: "",
                 region = doc.getString("region") ?: "",
                 address = doc.getString("address") ?: "",
+                password = doc.getString("password") ?: "",
                 role = doc.getString("role") ?: "customer",
                 branchId = doc.getString("branchId") ?: "main_branch",
                 active = doc.getBoolean("active") ?: true,
@@ -664,6 +739,7 @@ object BunzoRepository {
             "phone" to user.phone,
             "region" to user.region,
             "address" to user.address,
+            "password" to user.password,
             "role" to user.role,
             "branchId" to user.branchId,
             "active" to user.active,
@@ -890,6 +966,7 @@ object BunzoRepository {
                 phone = cleanPhone,
                 region = region.trim(),
                 address = address.trim(),
+                password = password,
                 role = "customer",
                 branchId = "main_branch",
                 active = true,
@@ -1162,6 +1239,7 @@ object BunzoRepository {
                     currentAdminUser.value = resolvedStaff
                 }
 
+                saveStaffSession(resolvedStaff)
                 updateRestrictedListeners()
 
                 logAudit(
@@ -1192,6 +1270,7 @@ object BunzoRepository {
         auth?.signOut()
         staffSession.value = null
         currentAdminUser.value = null
+        clearStaffSession()
         updateRestrictedListeners()
     }
 
@@ -1305,7 +1384,8 @@ object BunzoRepository {
         lastName: String,
         phone: String,
         region: String,
-        address: String
+        address: String,
+        newPassword: String? = null
     ): Result<User> = withContext(Dispatchers.IO) {
         val cleanPhone = phone.trim()
         if (cleanPhone.isBlank()) {
@@ -1313,6 +1393,7 @@ object BunzoRepository {
         }
 
         val existing = _users.value.find { it.uid == uid }
+        val targetPassword = if (!newPassword.isNullOrBlank()) newPassword.trim() else (existing?.password ?: "")
         val updated = if (existing != null) {
             existing.copy(
                 firstName = firstName.trim(),
@@ -1320,6 +1401,7 @@ object BunzoRepository {
                 phone = cleanPhone,
                 region = region.trim(),
                 address = address.trim(),
+                password = targetPassword,
                 updatedAt = System.currentTimeMillis()
             )
         } else {
@@ -1331,6 +1413,7 @@ object BunzoRepository {
                 phone = cleanPhone,
                 region = region.trim(),
                 address = address.trim(),
+                password = targetPassword,
                 role = "customer",
                 branchId = "main_branch",
                 active = true,
@@ -1351,11 +1434,57 @@ object BunzoRepository {
             }
             if (currentUser.value?.uid == uid) {
                 currentUser.value = updated
+                saveCustomerSession(updated)
             }
+
+            logAudit(
+                action = "ADMIN_UPDATE_CUSTOMER",
+                details = "تعديل بيانات العميل #${updated.uid} (${updated.fullName})" + if (!newPassword.isNullOrBlank()) " وتغيير كلمة المرور" else "",
+                actor = staffSession.value
+            )
+
             Result.success(updated)
         } catch (e: Exception) {
             Log.e("BunzoRepository", "adminUpdateCustomer error", e)
             Result.failure(Exception(e.localizedMessage ?: "فشل تحديث بيانات العميل"))
+        }
+    }
+
+    suspend fun adminUpdateCustomerPassword(uid: String, newPassword: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val cleanPassword = newPassword.trim()
+        if (cleanPassword.length < 6) {
+            return@withContext Result.failure(Exception("يجب أن تكون كلمة المرور 6 أحرف أو أرقام على الأقل"))
+        }
+
+        try {
+            ensureFirebaseInitialized(appContext)
+            firestore?.collection("users")?.document(uid)?.update(
+                mapOf(
+                    "password" to cleanPassword,
+                    "updatedAt" to System.currentTimeMillis()
+                )
+            )?.await()
+
+            _users.update { list ->
+                list.map { if (it.uid == uid) it.copy(password = cleanPassword, updatedAt = System.currentTimeMillis()) else it }
+            }
+
+            if (currentUser.value?.uid == uid) {
+                val updated = currentUser.value?.copy(password = cleanPassword)
+                currentUser.value = updated
+                if (updated != null) saveCustomerSession(updated)
+            }
+
+            logAudit(
+                action = "ADMIN_CHANGE_CUSTOMER_PASSWORD",
+                details = "تعديل كلمة مرور العميل #$uid بنجاح بواسطة الإدارة",
+                actor = staffSession.value
+            )
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("BunzoRepository", "adminUpdateCustomerPassword error", e)
+            Result.failure(Exception(e.localizedMessage ?: "فشل تحديث كلمة المرور في قاعدة البيانات"))
         }
     }
 

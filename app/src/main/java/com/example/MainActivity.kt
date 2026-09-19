@@ -98,7 +98,16 @@ fun BunzoMainScreen(
 ) {
     val context = LocalContext.current
     val isSoundEnabled by BunzoRepository.isSoundEnabled.collectAsState()
-    var currentDestination by remember { mutableStateOf(AppDestination.CUSTOMER_MENU) }
+    val staffSession by BunzoRepository.staffSession.collectAsState()
+    val initialDestination = remember {
+        val staff = BunzoRepository.staffSession.value
+        when (staff?.userRole) {
+            UserRole.ADMIN -> AppDestination.ADMIN_DASHBOARD
+            UserRole.KITCHEN -> AppDestination.KITCHEN_KDS
+            else -> AppDestination.CUSTOMER_MENU
+        }
+    }
+    var currentDestination by remember { mutableStateOf(initialDestination) }
     var trackingOrderId by remember { mutableStateOf<String?>(null) }
 
     // Request POST_NOTIFICATIONS permission on Android 13+
@@ -139,7 +148,6 @@ fun BunzoMainScreen(
     }
 
     val cartTotalCount = remember(cartItems) { cartItems.sumOf { it.quantity } }
-    val staffSession by BunzoRepository.staffSession.collectAsState()
 
     val isStaffOrKitchenScreen = currentDestination in listOf(
         AppDestination.STAFF_LOGIN,
